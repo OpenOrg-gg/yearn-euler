@@ -1,4 +1,10 @@
-# Yearn Strategy Brownie Mix
+# Yearn Strategy Brownie Mix - Euler:
+
+Simple V1 strat designed to have deposit only vaults and supporting ySwaps and remote claiming.
+
+Purpose is to reduce overhead on managing multiple assets and support new single sided vaults which are important to partners.
+
+V2 will include leverage debt mining for major vaults once the EUL claiming is released.
 
 ## What you'll find here
 
