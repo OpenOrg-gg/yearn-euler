@@ -105,8 +105,8 @@ contract Strategy is BaseStrategy {
     IEulerEulDistributor public distributor;
     IEulerMarkets public constant marketsModule = IEulerMarkets(0x3520d5a913427E6F0D6A83E07ccD4A4da316e4d3);
     address public assetMarket = address(want);
-    uint256 public numerator;
-    uint256 public denominator;
+    uint256 public keepEul;
+    uint256 public basis = 10000;
 
     constructor(address _vault) public BaseStrategy(_vault) {
         // You can set these parameters on deployment to whatever you want
@@ -118,8 +118,7 @@ contract Strategy is BaseStrategy {
         want.approve(address(eToken), type(uint).max);
         want.approve(address(0x27182842E098f60e3D576794A5bFFb0777E025d3), type(uint).max);
         eToken.approve(address(marketsModule), type(uint).max);
-        numerator = 5;
-        denominator = 100;
+        keepEul = 500;
     }
 
     // ******** OVERRIDE THESE METHODS FROM BASE CONTRACT ************
@@ -134,7 +133,7 @@ contract Strategy is BaseStrategy {
         // TODO: Build a more accurate estimate using the value of all positions in terms of `want`
         uint256 depositedBalance = eToken.balanceOfUnderlying(address(this)); //balance of for deposited tokens is returned in tokens, need balanceOfUnderlying
         
-        return want.balanceOf(address(this)).add(depositedBalance);
+        return balanceOfWant().add(depositedBalance);
     }
 
     function prepareReturn(uint256 _debtOutstanding)
@@ -184,10 +183,10 @@ contract Strategy is BaseStrategy {
         eToken.withdraw(0,_amount);
     }
 
-    function balanceOfWant() public returns(uint256){
+    function balanceOfWant() public view returns(uint256){
         return want.balanceOf(address(this));
     }
-    function balanceOfUnderlyingToWant() public returns (uint256){
+    function balanceOfUnderlyingToWant() public view returns (uint256){
         return eToken.balanceOfUnderlying(address(this));
     }
     
@@ -210,7 +209,7 @@ contract Strategy is BaseStrategy {
         eToken.deposit(0, balanceOfWant());
     }
 
-    function proofClaim(bytes32[] calldata _proof, address _distributor, uint256 _claimableEul) public onlyGovernance {
+    function proofClaim(bytes32[] calldata _proof, address _distributor, uint256 _claimableEul) public onlyAuthorized {
        distributor = IEulerEulDistributor(_distributor);
        bytes32[] calldata proof = _proof;
 
@@ -224,7 +223,7 @@ contract Strategy is BaseStrategy {
             uint256 remainder = eulToken.balanceOf(address(this)).sub(existingEul); 
 
             //transfer some percent to treasury for voting
-            uint256 amount = remainder.mul(numerator).div(denominator);
+            uint256 amount = remainder.mul(keepEul).div(basis);
             eulToken.transfer(strategistMultisig, amount);
         }
     }
@@ -237,7 +236,6 @@ contract Strategy is BaseStrategy {
         // TODO: Do stuff here to free up to `_amountNeeded` from all positions back into `want`
         // NOTE: Maintain invariant `want.balanceOf(this) >= _liquidatedAmount`
         // NOTE: Maintain invariant `_liquidatedAmount + _loss <= _amountNeeded`
-
         if(_amountNeeded <= balanceOfUnderlyingToWant()){
             _withdrawFromMarket(_amountNeeded);
         } else {
@@ -257,7 +255,7 @@ contract Strategy is BaseStrategy {
 
         //Euler special withdraw function to withdraw max available without missing fees that accumulate each block
         eToken.withdraw(0, type(uint).max);
-        return want.balanceOf(address(this));
+        return balanceOfWant();
     }
 
     // NOTE: Can override `tendTrigger` and `harvestTrigger` if necessary
@@ -339,8 +337,7 @@ contract Strategy is BaseStrategy {
 
     // ----------------- MANAGEMENT FUNCTIONS ---------------------
 
-    function setFeeNumDenom(uint256 _num, uint256 _denom) public onlyAuthorized {
-        numerator = _num;
-        denominator = _denom;
+    function setKeepEul(uint256 _keepEul) public onlyAuthorized {
+        keepEul = _keepEul;
     }
 }
