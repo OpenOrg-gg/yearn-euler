@@ -206,7 +206,9 @@ contract Strategy is BaseStrategy {
         marketsModule.underlyingToEToken(address(want));
 
         //Since we aren't borrowing we don't need to have _debtOutstanding pulled since it can always be withdrawn?
-        eToken.deposit(0, balanceOfWant());
+        if(balanceOfWant > 0){
+            eToken.deposit(0, balanceOfWant());
+        }
     }
 
     function proofClaim(bytes32[] calldata _proof, address _distributor, uint256 _claimableEul) public onlyAuthorized {
@@ -236,15 +238,20 @@ contract Strategy is BaseStrategy {
         // TODO: Do stuff here to free up to `_amountNeeded` from all positions back into `want`
         // NOTE: Maintain invariant `want.balanceOf(this) >= _liquidatedAmount`
         // NOTE: Maintain invariant `_liquidatedAmount + _loss <= _amountNeeded`
-        if(_amountNeeded <= balanceOfUnderlyingToWant()){
-            _withdrawFromMarket(_amountNeeded);
-        } else {
-            eToken.withdraw(0, type(uint).max);
+        uint256 preBalance = balanceOfWant();
+
+        if(_amountNeeded > balanceOfWant()){
+            if(_amountNeeded <= balanceOfUnderlyingToWant()){
+                _withdrawFromMarket(_amountNeeded);
+            } else {
+                _withdrawFromMarket(type(uint).max); 
+            }
         }
 
         uint256 totalAssets = want.balanceOf(address(this));
+
         if (_amountNeeded > totalAssets) {
-            _liquidatedAmount = totalAssets;
+            _liquidatedAmount = totalAssets.sub(preBalance);
             _loss = _amountNeeded.sub(totalAssets);
         } else {
             _liquidatedAmount = _amountNeeded;
@@ -337,7 +344,7 @@ contract Strategy is BaseStrategy {
 
     // ----------------- MANAGEMENT FUNCTIONS ---------------------
 
-    function setKeepEul(uint256 _keepEul) public onlyAuthorized {
+    function setKeepEul(uint256 _keepEul) public onlyGovernance {
         keepEul = _keepEul;
     }
 }
