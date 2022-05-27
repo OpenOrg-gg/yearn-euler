@@ -136,7 +136,29 @@ contract Strategy is BaseStrategy {
         return balanceOfWant().add(depositedBalance);
     }
 
-    function prepareReturn(uint256 _debtOutstanding)
+    
+    //Organizational Functions
+
+    function _withdrawFromMarket(uint256 _amount) internal {
+        eToken.withdraw(0,_amount);
+    }
+
+    function balanceOfWant() public view returns(uint256){
+        return want.balanceOf(address(this));
+    }
+    function balanceOfUnderlyingToWant() public view returns (uint256){
+        return eToken.balanceOfUnderlying(address(this));
+    }
+    
+    function withdrawSome(uint256 _amount) internal returns(uint256){
+        uint256 preBalance = balanceOfWant();
+        eToken.withdraw(0, _amount);
+        uint256 postBalance = balanceOfWant();
+
+        return postBalance.sub(preBalance);
+    }
+
+function prepareReturn(uint256 _debtOutstanding)
         internal
         override
         returns (
@@ -177,27 +199,6 @@ contract Strategy is BaseStrategy {
         }
     }
 
-    //Organizational Functions
-
-    function _withdrawFromMarket(uint256 _amount) internal {
-        eToken.withdraw(0,_amount);
-    }
-
-    function balanceOfWant() public view returns(uint256){
-        return want.balanceOf(address(this));
-    }
-    function balanceOfUnderlyingToWant() public view returns (uint256){
-        return eToken.balanceOfUnderlying(address(this));
-    }
-    
-    function withdrawSome(uint256 _amount) internal returns(uint256){
-        uint256 preBalance = balanceOfWant();
-        eToken.withdraw(0, _amount);
-        uint256 postBalance = balanceOfWant();
-
-        return postBalance.sub(preBalance);
-    }
-
     function adjustPosition(uint256 _debtOutstanding) internal override {
         // TODO: Do something to invest excess `want` tokens (from the Vault) into your positions
         // NOTE: Try to adjust positions so that `_debtOutstanding` can be freed up on *next* harvest (not immediately)
@@ -206,7 +207,7 @@ contract Strategy is BaseStrategy {
         marketsModule.underlyingToEToken(address(want));
 
         //Since we aren't borrowing we don't need to have _debtOutstanding pulled since it can always be withdrawn?
-        if(balanceOfWant > 0){
+        if(balanceOfWant() > 0){
             eToken.deposit(0, balanceOfWant());
         }
     }
