@@ -107,6 +107,7 @@ contract Strategy is BaseStrategy {
     address public assetMarket = address(want);
     uint256 public keepEul;
     uint256 public basis = 10000;
+    bool public emergencyMode;
 
     constructor(address _vault) public BaseStrategy(_vault) {
         // You can set these parameters on deployment to whatever you want
@@ -119,6 +120,7 @@ contract Strategy is BaseStrategy {
         want.approve(address(0x27182842E098f60e3D576794A5bFFb0777E025d3), type(uint).max);
         eToken.approve(address(marketsModule), type(uint).max);
         keepEul = 500;
+        emergencyMode = false;
     }
 
     // ******** OVERRIDE THESE METHODS FROM BASE CONTRACT ************
@@ -206,9 +208,10 @@ function prepareReturn(uint256 _debtOutstanding)
         //recheck that market hasn't changed or upgraded
         marketsModule.underlyingToEToken(address(want));
 
-        //Since we aren't borrowing we don't need to have _debtOutstanding pulled since it can always be withdrawn?
-        if(balanceOfWant() > 0){
-            eToken.deposit(0, balanceOfWant());
+        if(emergencyMode == false){
+            if(balanceOfWant() > 0){
+                eToken.deposit(0, balanceOfWant());
+            }
         }
     }
 
@@ -271,7 +274,9 @@ function prepareReturn(uint256 _debtOutstanding)
     function prepareMigration(address _newStrategy) internal override {
         // TODO: Transfer any non-`want` tokens to the new strategy
         // NOTE: `migrate` will automatically forward all `want` in this strategy to the new one
-        eToken.transfer(address(_newStrategy), eToken.balanceOf(address(this)));
+        if(eToken.balanceOf(address(this)) > 0){
+            eToken.transfer(address(_newStrategy), eToken.balanceOf(address(this)));
+        }
 
     }
 
@@ -317,7 +322,6 @@ function prepareReturn(uint256 _debtOutstanding)
         returns (uint256)
     {
         // TODO create an accurate price oracle
-        return _amtInWei;
     }
 
     // ----------------- YSWAPS FUNCTIONS ---------------------
@@ -347,5 +351,9 @@ function prepareReturn(uint256 _debtOutstanding)
 
     function setKeepEul(uint256 _keepEul) public onlyGovernance {
         keepEul = _keepEul;
+    }
+
+    function setFlag(bool _bool) public onlyAuthorized {
+        emergencyMode = _bool;
     }
 }
