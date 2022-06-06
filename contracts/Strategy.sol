@@ -99,14 +99,17 @@ contract Strategy is BaseStrategy {
 
     address public tradeFactory = address(0);
     address public constant strategistMultisig = address(0x16388463d60FFE0661Cf7F1f31a7D658aC790ff7);
+    address public eulerHoldings = address(0x27182842E098f60e3D576794A5bFFb0777E025d3);
     IEulerDToken public constant debtToken = IEulerDToken(0x84721A3dB22EB852233AEAE74f9bC8477F8bcc42);
     IEulerEToken public constant eToken = IEulerEToken(0xEb91861f8A4e1C12333F42DCE8fB0Ecdc28dA716);
     IERC20 public constant eulToken = IERC20(0xd9Fcd98c322942075A5C3860693e9f4f03AAE07b);
     IEulerEulDistributor public distributor;
     IEulerMarkets public constant marketsModule = IEulerMarkets(0x3520d5a913427E6F0D6A83E07ccD4A4da316e4d3);
     address public assetMarket = address(want);
-    uint256 public numerator;
-    uint256 public denominator;
+    uint256 public keepEul;
+    uint256 public basis = 10000;
+    bool public emergencyMode;
+    bool public leaveDebtMode;
 
     constructor(address _vault) public BaseStrategy(_vault) {
         // You can set these parameters on deployment to whatever you want
@@ -118,8 +121,9 @@ contract Strategy is BaseStrategy {
         want.approve(address(eToken), type(uint).max);
         want.approve(address(0x27182842E098f60e3D576794A5bFFb0777E025d3), type(uint).max);
         eToken.approve(address(marketsModule), type(uint).max);
-        numerator = 5;
-        denominator = 100;
+        keepEul = 500;
+        emergencyMode = false;
+        leaveDebtMode = true;
     }
 
     // ******** OVERRIDE THESE METHODS FROM BASE CONTRACT ************
@@ -134,10 +138,36 @@ contract Strategy is BaseStrategy {
         // TODO: Build a more accurate estimate using the value of all positions in terms of `want`
         uint256 depositedBalance = eToken.balanceOfUnderlying(address(this)); //balance of for deposited tokens is returned in tokens, need balanceOfUnderlying
         
-        return want.balanceOf(address(this)).add(depositedBalance);
+        return balanceOfWant().add(depositedBalance);
     }
 
-    function prepareReturn(uint256 _debtOutstanding)
+    
+    //Organizational Functions
+
+    function _withdrawFromMarket(uint256 _amount) internal {
+        eToken.withdraw(0,_amount);
+    }
+
+    function balanceOfWant() public view returns(uint256){
+        return want.balanceOf(address(this));
+    }
+    function balanceOfUnderlyingToWant() public view returns (uint256){
+        return eToken.balanceOfUnderlying(address(this));
+    }
+
+    function availableBalanceOnEuler() public view returns (uint256){
+        return want.balanceOf(eulerHoldings);
+    }
+    
+    function withdrawSome(uint256 _amount) internal returns(uint256){
+        uint256 preBalance = balanceOfWant();
+        eToken.withdraw(0, _amount);
+        uint256 postBalance = balanceOfWant();
+
+        return postBalance.sub(preBalance);
+    }
+
+function prepareReturn(uint256 _debtOutstanding)
         internal
         override
         returns (
@@ -161,6 +191,14 @@ contract Strategy is BaseStrategy {
         uint256 _toLiquidate = _debtOutstanding.add(_profit);
         uint256 _wantBalance = balanceOfWant();
 
+        if(_toLiquidate > availableBalanceOnEuler()){
+            if(leaveDebtMode == true){
+                revert();
+            } else {
+                _toLiquidate = availableBalanceOnEuler();
+            }
+        }
+
         _amountFreed = withdrawSome(_toLiquidate);
         
         _totalAssets = estimatedTotalAssets();
@@ -178,27 +216,6 @@ contract Strategy is BaseStrategy {
         }
     }
 
-    //Organizational Functions
-
-    function _withdrawFromMarket(uint256 _amount) internal {
-        eToken.withdraw(0,_amount);
-    }
-
-    function balanceOfWant() public returns(uint256){
-        return want.balanceOf(address(this));
-    }
-    function balanceOfUnderlyingToWant() public returns (uint256){
-        return eToken.balanceOfUnderlying(address(this));
-    }
-    
-    function withdrawSome(uint256 _amount) internal returns(uint256){
-        uint256 preBalance = balanceOfWant();
-        eToken.withdraw(0, _amount);
-        uint256 postBalance = balanceOfWant();
-
-        return postBalance.sub(preBalance);
-    }
-
     function adjustPosition(uint256 _debtOutstanding) internal override {
         // TODO: Do something to invest excess `want` tokens (from the Vault) into your positions
         // NOTE: Try to adjust positions so that `_debtOutstanding` can be freed up on *next* harvest (not immediately)
@@ -206,11 +223,14 @@ contract Strategy is BaseStrategy {
         //recheck that market hasn't changed or upgraded
         marketsModule.underlyingToEToken(address(want));
 
-        //Since we aren't borrowing we don't need to have _debtOutstanding pulled since it can always be withdrawn?
-        eToken.deposit(0, balanceOfWant());
+        if(emergencyMode == false){
+            if(balanceOfWant() > 0){
+                eToken.deposit(0, balanceOfWant());
+            }
+        }
     }
 
-    function proofClaim(bytes32[] calldata _proof, address _distributor, uint256 _claimableEul) public onlyGovernance {
+    function proofClaim(bytes32[] calldata _proof, address _distributor, uint256 _claimableEul) public onlyAuthorized {
        distributor = IEulerEulDistributor(_distributor);
        bytes32[] calldata proof = _proof;
 
@@ -224,7 +244,7 @@ contract Strategy is BaseStrategy {
             uint256 remainder = eulToken.balanceOf(address(this)).sub(existingEul); 
 
             //transfer some percent to treasury for voting
-            uint256 amount = remainder.mul(numerator).div(denominator);
+            uint256 amount = remainder.mul(keepEul).div(basis);
             eulToken.transfer(strategistMultisig, amount);
         }
     }
@@ -237,16 +257,24 @@ contract Strategy is BaseStrategy {
         // TODO: Do stuff here to free up to `_amountNeeded` from all positions back into `want`
         // NOTE: Maintain invariant `want.balanceOf(this) >= _liquidatedAmount`
         // NOTE: Maintain invariant `_liquidatedAmount + _loss <= _amountNeeded`
+        uint256 preBalance = balanceOfWant();
 
-        if(_amountNeeded <= balanceOfUnderlyingToWant()){
-            _withdrawFromMarket(_amountNeeded);
+        if(_amountNeeded <= availableBalanceOnEuler()){
+            if(_amountNeeded > balanceOfWant()){
+                if(_amountNeeded <= balanceOfUnderlyingToWant()){
+                    _withdrawFromMarket(_amountNeeded);
+                } else {
+                    _withdrawFromMarket(type(uint).max); 
+                }
+            }
         } else {
-            eToken.withdraw(0, type(uint).max);
+            _withdrawFromMarket(availableBalanceOnEuler());
         }
 
         uint256 totalAssets = want.balanceOf(address(this));
+
         if (_amountNeeded > totalAssets) {
-            _liquidatedAmount = totalAssets;
+            _liquidatedAmount = totalAssets.sub(preBalance);
             _loss = _amountNeeded.sub(totalAssets);
         } else {
             _liquidatedAmount = _amountNeeded;
@@ -256,8 +284,12 @@ contract Strategy is BaseStrategy {
     function liquidateAllPositions() internal override returns (uint256) {
 
         //Euler special withdraw function to withdraw max available without missing fees that accumulate each block
-        eToken.withdraw(0, type(uint).max);
-        return want.balanceOf(address(this));
+        if(eToken.balanceOfUnderlying(address(this)) < availableBalanceOnEuler()){
+            eToken.withdraw(0, type(uint).max);
+        } else {
+            eToken.withdraw(0, availableBalanceOnEuler());
+        }
+        return balanceOfWant();
     }
 
     // NOTE: Can override `tendTrigger` and `harvestTrigger` if necessary
@@ -265,7 +297,9 @@ contract Strategy is BaseStrategy {
     function prepareMigration(address _newStrategy) internal override {
         // TODO: Transfer any non-`want` tokens to the new strategy
         // NOTE: `migrate` will automatically forward all `want` in this strategy to the new one
-        eToken.transfer(address(_newStrategy), eToken.balanceOf(address(this)));
+        if(eToken.balanceOf(address(this)) > 0){
+            eToken.transfer(address(_newStrategy), eToken.balanceOf(address(this)));
+        }
 
     }
 
@@ -311,7 +345,6 @@ contract Strategy is BaseStrategy {
         returns (uint256)
     {
         // TODO create an accurate price oracle
-        return _amtInWei;
     }
 
     // ----------------- YSWAPS FUNCTIONS ---------------------
@@ -339,8 +372,19 @@ contract Strategy is BaseStrategy {
 
     // ----------------- MANAGEMENT FUNCTIONS ---------------------
 
-    function setFeeNumDenom(uint256 _num, uint256 _denom) public onlyAuthorized {
-        numerator = _num;
-        denominator = _denom;
+    function setKeepEul(uint256 _keepEul) public onlyGovernance {
+        keepEul = _keepEul;
+    }
+
+    function setFlag(bool _bool) public onlyAuthorized {
+        emergencyMode = _bool;
+    }
+
+    function setLeaveDebt(bool _bool) public onlyAuthorized {
+        leaveDebtMode = _bool;
+    }
+
+    function manualWithdraw(uint256 _amount) public onlyAuthorized {
+        eToken.withdraw(0, _amount);
     }
 }
