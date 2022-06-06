@@ -99,6 +99,7 @@ contract Strategy is BaseStrategy {
 
     address public tradeFactory = address(0);
     address public constant strategistMultisig = address(0x16388463d60FFE0661Cf7F1f31a7D658aC790ff7);
+    address public eulerHoldings = address(0x27182842E098f60e3D576794A5bFFb0777E025d3);
     IEulerDToken public constant debtToken = IEulerDToken(0x84721A3dB22EB852233AEAE74f9bC8477F8bcc42);
     IEulerEToken public constant eToken = IEulerEToken(0xEb91861f8A4e1C12333F42DCE8fB0Ecdc28dA716);
     IERC20 public constant eulToken = IERC20(0xd9Fcd98c322942075A5C3860693e9f4f03AAE07b);
@@ -108,6 +109,7 @@ contract Strategy is BaseStrategy {
     uint256 public keepEul;
     uint256 public basis = 10000;
     bool public emergencyMode;
+    bool public leaveDebtMode;
 
     constructor(address _vault) public BaseStrategy(_vault) {
         // You can set these parameters on deployment to whatever you want
@@ -121,6 +123,7 @@ contract Strategy is BaseStrategy {
         eToken.approve(address(marketsModule), type(uint).max);
         keepEul = 500;
         emergencyMode = false;
+        leaveDebtMode = true;
     }
 
     // ******** OVERRIDE THESE METHODS FROM BASE CONTRACT ************
@@ -150,6 +153,10 @@ contract Strategy is BaseStrategy {
     }
     function balanceOfUnderlyingToWant() public view returns (uint256){
         return eToken.balanceOfUnderlying(address(this));
+    }
+
+    function availableBalanceOnEuler() public view returns (uint256){
+        return want.balanceOf(eulerHoldings);
     }
     
     function withdrawSome(uint256 _amount) internal returns(uint256){
@@ -183,6 +190,14 @@ function prepareReturn(uint256 _debtOutstanding)
         uint256 _amountFreed;
         uint256 _toLiquidate = _debtOutstanding.add(_profit);
         uint256 _wantBalance = balanceOfWant();
+
+        if(_toLiquidate > availableBalanceOnEuler()){
+            if(leaveDebtMode == true){
+                revert();
+            } else {
+                _toLiquidate = availableBalanceOnEuler();
+            }
+        }
 
         _amountFreed = withdrawSome(_toLiquidate);
         
@@ -244,12 +259,16 @@ function prepareReturn(uint256 _debtOutstanding)
         // NOTE: Maintain invariant `_liquidatedAmount + _loss <= _amountNeeded`
         uint256 preBalance = balanceOfWant();
 
-        if(_amountNeeded > balanceOfWant()){
-            if(_amountNeeded <= balanceOfUnderlyingToWant()){
-                _withdrawFromMarket(_amountNeeded);
-            } else {
-                _withdrawFromMarket(type(uint).max); 
+        if(_amountNeeded <= availableBalanceOnEuler()){
+            if(_amountNeeded > balanceOfWant()){
+                if(_amountNeeded <= balanceOfUnderlyingToWant()){
+                    _withdrawFromMarket(_amountNeeded);
+                } else {
+                    _withdrawFromMarket(type(uint).max); 
+                }
             }
+        } else {
+            _withdrawFromMarket(availableBalanceOnEuler());
         }
 
         uint256 totalAssets = want.balanceOf(address(this));
@@ -265,7 +284,11 @@ function prepareReturn(uint256 _debtOutstanding)
     function liquidateAllPositions() internal override returns (uint256) {
 
         //Euler special withdraw function to withdraw max available without missing fees that accumulate each block
-        eToken.withdraw(0, type(uint).max);
+        if(eToken.balanceOfUnderlying(address(this)) < availableBalanceOnEuler()){
+            eToken.withdraw(0, type(uint).max);
+        } else {
+            eToken.withdraw(0, availableBalanceOnEuler());
+        }
         return balanceOfWant();
     }
 
@@ -355,5 +378,13 @@ function prepareReturn(uint256 _debtOutstanding)
 
     function setFlag(bool _bool) public onlyAuthorized {
         emergencyMode = _bool;
+    }
+
+    function setLeaveDebt(bool _bool) public onlyAuthorized {
+        leaveDebtMode = _bool;
+    }
+
+    function manualWithdraw(uint256 _amount) public onlyAuthorized {
+        eToken.withdraw(0, _amount);
     }
 }
