@@ -193,7 +193,7 @@ function prepareReturn(uint256 _debtOutstanding)
 
         if(_toLiquidate > availableBalanceOnEuler()){
             if(leaveDebtMode == true){
-                revert();
+                require(false);
             } else {
                 _toLiquidate = availableBalanceOnEuler();
             }

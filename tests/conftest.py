@@ -53,6 +53,10 @@ def amount(accounts, token, user):
     token.transfer(user, amount, {"from": reserve})
     yield amount
 
+@pytest.fixture
+def reserveAccount(accounts):
+    reserveAccount = accounts.at("0x27182842E098f60e3D576794A5bFFb0777E025d3", force=True)
+    yield reserveAccount
 
 @pytest.fixture
 def weth():

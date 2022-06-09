@@ -26,6 +26,28 @@ def test_operation(
         pytest.approx(token.balanceOf(user), rel=RELATIVE_APPROX) == user_balance_before
     )
 
+def test_operation_with_debt_flag(
+    chain, accounts, token, vault, strategy, user, strategist, amount, RELATIVE_APPROX, reserveAccount, gov
+):
+    # Deposit to the vault
+    user_balance_before = token.balanceOf(user)
+    token.approve(vault.address, amount, {"from": user})
+    vault.deposit(amount, {"from": user})
+    assert token.balanceOf(vault.address) == amount
+
+    chain.sleep(1)
+
+    strategy.setLeaveDebt(True, {"from": strategist})
+    token.transfer("0x000000000000000000000000000000000000dEaD", token.balanceOf(reserveAccount), {"from": reserveAccount})
+    assert pytest.approx(token.balanceOf(reserveAccount), rel=RELATIVE_APPROX) == 0
+
+    vault.updateStrategyDebtRatio(strategy.address, 0, {"from": gov})
+
+    # harvest
+    chain.sleep(1)
+    with brownie.reverts("flag works"):
+        strategy.harvest()
+
 
 def test_emergency_exit(
     chain, accounts, token, vault, strategy, user, strategist, amount, RELATIVE_APPROX
