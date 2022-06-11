@@ -37,17 +37,24 @@ def test_operation_with_debt_flag(
 
     chain.sleep(1)
 
-    strategy.setLeaveDebt(True, {"from": strategist})
+    strategy.harvest()
+
+    chain.sleep(1)
+    vault.updateStrategyDebtRatio(strategy.address, 0, {"from": gov})
     token.transfer("0x000000000000000000000000000000000000dEaD", token.balanceOf(reserveAccount), {"from": reserveAccount})
     assert pytest.approx(token.balanceOf(reserveAccount), rel=RELATIVE_APPROX) == 0
 
-    vault.updateStrategyDebtRatio(strategy.address, 0, {"from": gov})
-
+    strategy.setLeaveDebt(False, {"from": strategist})
     # harvest
     chain.sleep(1)
-    with brownie.reverts("flag works"):
+    with brownie.reverts():
         strategy.harvest()
 
+    strategy.setLeaveDebt(True, {"from": strategist})
+
+    tx = strategy.harvest()
+    assert tx.events['Harvested']['loss'] > 0
+    assert tx.events['Harvested']['debtOutstanding'] == 0
 
 def test_emergency_exit(
     chain, accounts, token, vault, strategy, user, strategist, amount, RELATIVE_APPROX
@@ -155,4 +162,3 @@ def test_triggers(
 
     strategy.harvestTrigger(0)
     strategy.tendTrigger(0)
-
