@@ -255,27 +255,54 @@ function prepareReturn(uint256 _debtOutstanding)
         // NOTE: Maintain invariant `want.balanceOf(this) >= _liquidatedAmount`
         // NOTE: Maintain invariant `_liquidatedAmount + _loss <= _amountNeeded`
         uint256 preBalance = balanceOfWant();
+        uint256 recieved;
 
-        if(_amountNeeded <= availableBalanceOnEuler()){
-            if(_amountNeeded > balanceOfWant()){
-                if(_amountNeeded <= balanceOfUnderlyingToWant()){
-                    _withdrawFromMarket(_amountNeeded);
-                } else {
-                    _withdrawFromMarket(type(uint).max);
+        if (balanceOfWant() >= _amountNeeded){
+            return(_amountNeeded, 0);
+        } else {
+            if(_amountNeeded <= availableBalanceOnEuler()){
+                if(_amountNeeded > balanceOfWant()){
+                    if(_amountNeeded <= balanceOfUnderlyingToWant()){
+                        _withdrawFromMarket(_amountNeeded);
+                        recieved = balanceOfWant().sub(preBalance);
+
+                        if(recieved >= _amountNeeded) {
+                            return (_amountNeeded, 0);
+                        } else {
+                            return (recieved, 0);
+                        }
+
+                    } else {
+                        _withdrawFromMarket(type(uint).max);
+                        uint256 current = balanceOfWant();
+                        if(current > preBalance) {
+                            recieved = balanceOfWant().sub(preBalance);
+                        } else {
+                            recieved = 0;
+                        }
+                        if(recieved >= _amountNeeded) {
+                            return (_amountNeeded, 0);
+                        } else {
+                            return (recieved, 0);
+                        }
+                    }
                 }
+            } else {
+                _withdrawFromMarket(availableBalanceOnEuler());
+                if(balanceOfWant() > preBalance) {
+                            recieved = balanceOfWant().sub(preBalance);
+                        } else {
+                            recieved = 0;
+                        }
+
+                    if(recieved >= _amountNeeded) {
+                            return (_amountNeeded, 0);
+                        } else {
+                            return (recieved, 0);
+                        }
             }
-        } else {
-            _withdrawFromMarket(availableBalanceOnEuler());
         }
 
-        uint256 totalAssets = want.balanceOf(address(this));
-
-        if (_amountNeeded > totalAssets) {
-            _liquidatedAmount = totalAssets.sub(preBalance);
-            _loss = _amountNeeded.sub(totalAssets);
-        } else {
-            _liquidatedAmount = _amountNeeded;
-        }
     }
 
     function liquidateAllPositions() internal override returns (uint256) {
