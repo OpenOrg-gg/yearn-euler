@@ -109,7 +109,6 @@ contract Strategy is BaseStrategy {
     uint256 public keepEul;
     uint256 public basis = 10000;
     bool public emergencyMode;
-    bool public leaveDebtMode;
 
     constructor(address _vault) public BaseStrategy(_vault) {
         // You can set these parameters on deployment to whatever you want
@@ -123,7 +122,6 @@ contract Strategy is BaseStrategy {
         eToken.approve(address(marketsModule), type(uint).max);
         keepEul = 500;
         emergencyMode = false;
-        leaveDebtMode = true;
     }
 
     // ******** OVERRIDE THESE METHODS FROM BASE CONTRACT ************
@@ -161,7 +159,8 @@ contract Strategy is BaseStrategy {
 
     function withdrawSome(uint256 _amount) internal returns(uint256){
         uint256 preBalance = balanceOfWant();
-        eToken.withdraw(0, _amount);
+        uint256 maxAvail = availableBalanceOnEuler();
+        eToken.withdraw(0, Math.min(maxAvail, _amount));
         uint256 postBalance = balanceOfWant();
 
         return postBalance.sub(preBalance);
@@ -191,10 +190,6 @@ function prepareReturn(uint256 _debtOutstanding)
         uint256 _toLiquidate = _debtOutstanding.add(_profit);
         uint256 _wantBalance = balanceOfWant();
         uint256 _eulerBalance = availableBalanceOnEuler();
-        if(_toLiquidate > _eulerBalance){
-            require(leaveDebtMode);
-            _toLiquidate = _eulerBalance;
-        }
 
         _amountFreed = withdrawSome(_toLiquidate);
 
@@ -402,10 +397,6 @@ function prepareReturn(uint256 _debtOutstanding)
 
     function setFlag(bool _bool) public onlyAuthorized {
         emergencyMode = _bool;
-    }
-
-    function setLeaveDebt(bool _bool) public onlyAuthorized {
-        leaveDebtMode = _bool;
     }
 
     function manualWithdraw(uint256 _amount) public onlyAuthorized {
