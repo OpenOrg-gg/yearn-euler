@@ -43,6 +43,25 @@ def token():
     token_address = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"  # this should be the address of the ERC-20 used by the strategy/vault (DAI)
     yield Contract(token_address)
 
+@pytest.fixture
+def reward():
+    token_address = "0xd9Fcd98c322942075A5C3860693e9f4f03AAE07b"  # this should be the address of the ERC-20 used by the strategy/vault (DAI)
+    yield Contract(token_address)
+
+@pytest.fixture
+def eToken():
+    token_address = "0xEb91861f8A4e1C12333F42DCE8fB0Ecdc28dA716"  # this should be the address of the ERC-20 used by the strategy/vault (DAI)
+    yield Contract(token_address)
+
+@pytest.fixture
+def debtToken():
+    token_address = "0x84721A3dB22EB852233AEAE74f9bC8477F8bcc42"  # this should be the address of the ERC-20 used by the strategy/vault (DAI)
+    yield token_address
+
+@pytest.fixture
+def name():
+    token_address = "Strat"  # this should be the address of the ERC-20 used by the strategy/vault (DAI)
+    yield token_address
 
 @pytest.fixture
 def amount(accounts, token, user):
@@ -82,11 +101,14 @@ def vault(pm, gov, rewards, guardian, management, token):
 
 
 @pytest.fixture
-def strategy(strategist, keeper, vault, Strategy, gov):
-    strategy = strategist.deploy(Strategy, vault)
-    strategy.setKeeper(keeper)
+def strategy(strategist, keeper, vault, Strategy, gov, eToken, debtToken, name, reward):
+    strategy = strategist.deploy(Strategy, vault, eToken, debtToken, name)
     vault.addStrategy(strategy, 10_000, 0, 2 ** 256 - 1, 1_000, {"from": gov})
     yield strategy
+
+@pytest.fixture
+def token_whale(accounts):
+    yield accounts.at("0x7abe0ce388281d2acf297cb089caef3819b13448", force=True)
 
 
 @pytest.fixture(scope="session")
