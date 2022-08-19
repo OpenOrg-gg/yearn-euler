@@ -99,13 +99,13 @@ contract Strategy is BaseStrategy {
 
     address public tradeFactory = address(0);
     address public constant strategistMultisig = address(0x16388463d60FFE0661Cf7F1f31a7D658aC790ff7);
-    address public eulerHoldings = address(0x27182842E098f60e3D576794A5bFFb0777E025d3);
+    address public constant eulerHoldings = address(0x27182842E098f60e3D576794A5bFFb0777E025d3);
     IEulerDToken public debtToken;
     IEulerEToken public eToken;
     IERC20 public constant eulToken = IERC20(0xd9Fcd98c322942075A5C3860693e9f4f03AAE07b);
     IEulerEulDistributor public distributor;
     IEulerMarkets public constant marketsModule = IEulerMarkets(0x3520d5a913427E6F0D6A83E07ccD4A4da316e4d3);
-    address public assetMarket = address(want);
+    address public assetMarket;
     uint256 public keepEul;
     uint256 public basis = 10000;
     string public strategyName;
@@ -209,6 +209,8 @@ contract Strategy is BaseStrategy {
         want.approve(address(0x27182842E098f60e3D576794A5bFFb0777E025d3), type(uint).max);
         eToken.approve(address(marketsModule), type(uint).max);
         keepEul = 500;
+        assetMarket = address(want);
+        tradeFactory = address(0);
     }
 
     function name() external view override returns (string memory) {
@@ -340,7 +342,7 @@ function prepareReturn(uint256 _debtOutstanding)
         } else {
             uint256 liquidatedAmount = withdrawSome(_amountNeeded);
             return(liquidatedAmount, 0);
-                    
+
         }
     }
 
