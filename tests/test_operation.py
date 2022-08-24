@@ -26,7 +26,6 @@ def test_operation(
         pytest.approx(token.balanceOf(user), rel=RELATIVE_APPROX) == user_balance_before
     )
 
-
 def test_emergency_exit(
     chain, accounts, token, vault, strategy, user, strategist, amount, RELATIVE_APPROX
 ):
