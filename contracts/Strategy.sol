@@ -335,7 +335,7 @@ function prepareReturn(uint256 _debtOutstanding)
         } else {
             uint256 liquidatedAmount = withdrawSome(_amountNeeded);
             return(liquidatedAmount, 0);
-                    
+
         }
     }
 
